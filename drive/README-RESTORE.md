@@ -68,9 +68,11 @@ at the files looks finished while the machine still does not work:
 
 - **`restore.sh` says the snapshot is incomplete.** Use an earlier one: `ls backups/*/snapshots`.
   Every completed snapshot is independently restorable; they share storage but not fate.
-- **A file is corrupt.** Run `verify.sh --snapshot <name> --full`. It reports files whose contents
-  changed while size and modification time did not, which is what disk rot looks like. An earlier
-  snapshot may still hold a good copy.
+- **A file is corrupt.** Run `verify.sh --snapshot <name> --full`. It re-reads the snapshot and
+  compares against the checksums recorded when the backup ran, reporting any file whose contents
+  changed while size and modification time did not, which is what disk rot looks like. It does not
+  overwrite the recorded checksums when it finds something: the old record is the evidence, and the
+  new hashes go to a `.suspect` file beside it. An earlier snapshot may still hold a good copy.
 - **The drive will not mount.** It is ext4. A Mac or Windows machine cannot read it without extra
   software; use a Linux machine.
 
