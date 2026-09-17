@@ -25,7 +25,13 @@ log() { printf '%s  %s\n' "$(date '+%F %T')" "$*"; }
 
 # Reuse the Telegram credentials the Claude channel already has. This deliberately does not open a
 # getUpdates poller; it only calls sendMessage, so it cannot steal messages from the bridge.
+#
+# TEST_MODE=1 prefixes every message with [TEST]. This exists because a test of the staleness
+# alarm once sent Bohan "last success: 2026-08-27" with no marking, and he read it as a record of
+# a backup that had never happened. A test that writes a plausible fact into someone's inbox is
+# worse than no test: anything sent to a person must be distinguishable from a real report.
 tg() {
+    [ "${TEST_MODE:-0}" = "1" ] && set -- "[TEST] $*"
     local env="$HOME/.claude/channels/telegram/.env"
     local access="$HOME/.claude/channels/telegram/access.json"
     [ -f "$env" ] && [ -f "$access" ] || { log "no telegram credentials, cannot notify: $*"; return; }
@@ -95,7 +101,13 @@ if ! "$HERE/verify.sh"; then
     exit 1
 fi
 
-date +%s >"$STATE_DIR/last-success"
+# TEST_MODE never touches the real state file: a test must not leave a "last success" timestamp
+# behind for the next real run to believe.
+if [ "${TEST_MODE:-0}" = "1" ]; then
+    log "TEST_MODE: not recording this run as a success"
+else
+    date +%s >"$STATE_DIR/last-success"
+fi
 SIZE=$(df -h "$MP" | tail -1 | awk '{print $4}')
 COUNT=$(ls -1 "$MP/backups/$HOSTNAME_S/snapshots" 2>/dev/null | wc -l)
 log "done; $COUNT snapshots on the drive, $SIZE free"

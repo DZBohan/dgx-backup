@@ -57,6 +57,16 @@ LOG="$ROOT/backup.log"
 
 mkdir -p "$SNAPS" "$ROOT/verify" || die "cannot create $SNAPS"
 
+# Keep the restore path and its instructions on the drive itself, refreshed every run. On the day
+# this is needed the repository may be unreachable, so the drive has to be self-sufficient.
+REPO=$(cd "$(dirname "$0")/.." && pwd)
+for f in "$REPO/drive/README-RESTORE.md:README-RESTORE.md" "$REPO/scripts/restore.sh:restore.sh" \
+         "$REPO/scripts/verify.sh:verify.sh"; do
+    src=${f%%:*}; dst=${f##*:}
+    [ -f "$src" ] && cp -p "$src" "$DEST/$dst"
+done
+chmod +x "$DEST/restore.sh" "$DEST/verify.sh" 2>/dev/null
+
 # ---------- exclusions ----------
 # Rebuildable content only, and only where the rebuild method is written down (see README).
 # Forgetting to exclude something costs disk space. Forgetting to *include* something loses it
@@ -125,13 +135,23 @@ if status == "complete":
     for name in sorted(os.listdir(home)):
         p = os.path.join(home, name)
         n = size = 0
-        for r, _, fs in os.walk(p, onerror=lambda e: None):
-            for f in fs:
-                n += 1
-                try:
-                    size += os.lstat(os.path.join(r, f)).st_size
-                except OSError:
-                    pass
+        if os.path.isdir(p) and not os.path.islink(p):
+            for r, _, fs in os.walk(p, onerror=lambda e: None):
+                for f in fs:
+                    n += 1
+                    try:
+                        size += os.lstat(os.path.join(r, f)).st_size
+                    except OSError:
+                        pass
+        else:
+            # A plain file or symlink directly under the home directory. os.walk yields nothing for
+            # these, so an earlier version reported "0 files" for a snapshot that clearly had some.
+            # ~/.claude.json is exactly this case, and restore.sh prints these counts to the operator.
+            n = 1
+            try:
+                size = os.lstat(p).st_size
+            except OSError:
+                pass
         top[name] = {"files": n, "bytes": size}
 
 json.dump({
