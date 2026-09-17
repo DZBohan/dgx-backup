@@ -243,7 +243,12 @@ Measured 2026-09-17, over the backup's own scope:
 | Changed in the last 30 days | 22,184 | 7.3 GB |
 
 A `--link-dest` snapshot allocates blocks only for files that changed, so after
-the 1.3 TB baseline each weekly snapshot costs roughly **1.2 GB**. Against 4.2 TB
+the 1.3 TB baseline each weekly snapshot costs roughly **1.2 GB**.
+
+Measured for real on 2026-09-17, with a second snapshot taken 19 hours after the
+first: **0.34 GB added, in 4 seconds**, against an apparent size of 1.3 TB. The
+copy was smaller than the 7-day projection above because less than a day had
+passed, and the run confirms the mechanism rather than the weekly figure. Against 4.2 TB
 free, that is decades of weekly history. Inodes are not a constraint either:
 193,364 used of 183 million, and a snapshot adds about one inode per directory
 rather than one per file.
