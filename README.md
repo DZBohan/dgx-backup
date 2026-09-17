@@ -217,6 +217,53 @@ The `dgx-backup.timer` systemd user timer is configured for Sunday at 02:00 loca
   does not compete with either assistant's bridge for incoming messages.
 - Each run appends a result line to the drive's `backup.log`.
 
+## Retention
+
+**Policy: keep every snapshot. Nothing is pruned automatically.**
+
+Decided by measurement rather than convention, because the usual advice (keep N
+weeklies, M monthlies) assumes snapshots cost something.
+
+Measured 2026-09-17, over the backup's own scope:
+
+| | Files | Size |
+|---|---|---|
+| Everything | 235,845 | 1427.4 GB |
+| Changed in the last 7 days | 1,966 | **1.2 GB** |
+| Changed in the last 30 days | 22,184 | 7.3 GB |
+
+A `--link-dest` snapshot allocates blocks only for files that changed, so after
+the 1.3 TB baseline each weekly snapshot costs roughly **1.2 GB**. Against 4.2 TB
+free, that is decades of weekly history. Inodes are not a constraint either:
+193,364 used of 183 million, and a snapshot adds about one inode per directory
+rather than one per file.
+
+Pruning would also recover far less than it appears to. Hard links mean an old
+snapshot shares blocks with every later snapshot still holding the same file, so
+deleting the oldest frees only what changed after it, not its apparent size.
+Deleting a 1.3 TB snapshot would return on the order of 1.2 GB.
+
+**What would overturn this.** These figures describe a home directory whose bulk
+is static research data. A week that reprocesses or reorganises `~/Projects`
+would write a delta in the hundreds of gigabytes. If that becomes common,
+re-measure rather than assume these numbers still hold.
+
+**If pruning is ever needed**, it is a deliberate manual act, not a scheduled
+one. Snapshots share storage but not fate, so any complete snapshot can be
+removed without harming the others:
+
+```bash
+ls backups/<host>/snapshots                      # choose one, oldest first
+head -5 backups/<host>/snapshots/<name>/MANIFEST.json
+rm -rf backups/<host>/snapshots/<name>           # never the target of `latest`
+rm -f  backups/<host>/verify/<name>.sha256       # and its checksum record
+```
+
+Confirm `latest` does not point at what you are deleting. `backup.sh` links each
+new snapshot against `latest`, so removing that one costs the next run its
+sharing and makes it a full 1.3 TB copy.
+
+
 ## Open issues
 
 - **The drive is unencrypted, by decision.** Bohan chose this and reaffirmed it
@@ -227,15 +274,13 @@ The `dgx-backup.timer` systemd user timer is configured for Sunday at 02:00 loca
 - **The one-hour recovery target is unverified.** `drill.sh` checks selected
   files and metadata. It does not measure recovery from bare hardware to a
   working machine. The target remains an estimate until a full recovery is timed.
-- **Retention is unbounded.** Nothing prunes old snapshots yet. Hard links reduce
-  storage use, but capacity is finite. A retention policy is needed before the
-  drive fills up.
-- **`~/.codex/telegram/state.json` is written in place.** A backup taken during
-  a rewrite could contain an incomplete file. Check 5 detects invalid JSON, but
-  cannot detect every inconsistent state that still parses. The small file and
-  short write window limit exposure. The bridge should use a temporary file
-  and atomic rename, as its other state files do; that prevents readers from
-  seeing a partial replacement but does not guarantee consistency across files.
+- **Cross-file consistency is not guaranteed.** `~/.codex/telegram/state.json`
+  was rewritten in place until 2026-09-17 and is now written to a temporary file
+  and renamed, so a backup can no longer catch it mid-replacement. That closes
+  the torn-file case for one file. It does not make a snapshot a consistent
+  point in time across files: the backup reads a live home directory over
+  several hours, and two files written minutes apart can land in the snapshot on
+  either side of a change.
 
 ## Related records
 
