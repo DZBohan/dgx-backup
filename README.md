@@ -203,6 +203,20 @@ protect against deletion and mistaken edits, which give the new version its own
 blocks. They do not protect against media decay. That protection would need a
 second physical copy, which this design does not have.
 
+**Where the decay happens changes what the system does**, and not in the obvious
+way. rsync decides a file is unchanged from its size and modification time,
+without reading it, which produces three different outcomes:
+
+| Where | What happens |
+|---|---|
+| The source decays silently (size and mtime unchanged) | rsync sees no change and hard-links the previous backup forward, so **the backup keeps the pre-decay copy**. Verified experimentally: same inode, old contents. Nobody detects the source decay, because verification reads the drive, not the source |
+| A program rewrites the file, correctly or not | mtime moves, rsync copies it, and the backup faithfully holds the new content. This is right: nothing can distinguish a legitimate edit from a bad write, and a backup should not try |
+| The backup drive decays | The source is fine and the copy is wrong. This is what `verify.sh` exists to find, and the one case with no second copy to recover from |
+
+The first row is an accidental property of `--link-dest` rather than a designed
+one, but it is real: for silent media decay on the source, the backup is cleaner
+than the machine. It is not a safeguard to rely on, since nothing reports it.
+
 The earliest signal for media decay is therefore SMART, read before each run, not
 the checksum sample. **`smartmontools` is not installed on this machine**, so that
 layer is currently absent and each run logs `smartctl not installed`.
