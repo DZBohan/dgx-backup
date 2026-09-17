@@ -1,0 +1,18 @@
+# ~/.config/systemd/user/codex-tg.service —— codex 助理 Telegram 桥接
+# %h = 你的家目录。改完：systemctl --user daemon-reload && systemctl --user enable --now codex-tg.service
+[Unit]
+Description=Vivian Banshee (codex assistant) Telegram bridge
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 %h/codex-assistant/codex-tg-bridge.py
+Restart=always
+RestartSec=5
+WorkingDirectory=%h/Codex
+Environment=PYTHONUNBUFFERED=1
+# PATH 必须能找到 codex、codex-notify、codex-bg（一般都在 ~/.local/bin）
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+
+[Install]
+WantedBy=default.target

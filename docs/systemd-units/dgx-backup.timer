@@ -1,0 +1,14 @@
+[Unit]
+Description=Weekly snapshot of $HOME onto the DGXBACKUP drive
+
+[Timer]
+# Sunday 02:00 local time. The system timezone is America/Los_Angeles as of 2026-09-15, so this
+# is Bohan's Sunday, not UTC's.
+OnCalendar=Sun 02:00
+# The drive is usually not plugged in at 02:00, and the machine may be off. Persistent makes the
+# run happen after boot if it was missed, and RandomizedDelay keeps it off the exact minute.
+Persistent=true
+RandomizedDelaySec=15m
+
+[Install]
+WantedBy=timers.target

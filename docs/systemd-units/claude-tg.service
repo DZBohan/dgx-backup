@@ -1,0 +1,16 @@
+[Unit]
+Description=Claude Telegram Bot
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStartPre=/home/dzbohan/Scripts/claude-tg-start-pre.sh
+ExecStart=/usr/bin/python3 /home/dzbohan/Scripts/claude-tg-runner.sh
+Restart=always
+RestartSec=5
+WorkingDirectory=/home/dzbohan/Claude
+Environment=HOME=/home/dzbohan
+Environment=PATH=/home/dzbohan/.bun/bin:/home/dzbohan/.local/bin:/usr/local/bin:/usr/bin:/bin
+
+[Install]
+WantedBy=default.target

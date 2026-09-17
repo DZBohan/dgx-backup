@@ -1,0 +1,13 @@
+bare	1.0
+core22	20260824
+core24	20260824
+firefox	155.0.1-1
+firmware-updater	0+git.5645b80
+gnome-42-2204	0+git.4982e7b-sdk0+git.69b626a
+gnome-46-2404	0+git.f1cd5fa-sdk0+git.ca9c59c
+gtk-common-themes	0.1-81-g442e511
+mesa-2404	25.2.8-snap288
+snap-store	41.3-72-g80e7130
+snapd	2.76.3
+snapd-desktop-integration	0.9
+thunderbird	155.0.1-1

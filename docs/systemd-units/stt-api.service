@@ -1,0 +1,15 @@
+[Unit]
+Description=STT (transformers/Whisper) HTTP API
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/home/dzbohan/Claude/stt-api/start.sh
+Restart=always
+RestartSec=5
+WorkingDirectory=/home/dzbohan/Claude/stt-api
+Environment=HOME=/home/dzbohan
+Environment=STT_MODEL=/home/dzbohan/Claude/stt-api/models/whisper-large-v3-hf
+
+[Install]
+WantedBy=default.target

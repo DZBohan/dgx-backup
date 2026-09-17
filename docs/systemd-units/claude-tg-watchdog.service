@@ -1,0 +1,16 @@
+[Unit]
+Description=Lucia (Claude Code + Telegram) watchdog
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 %h/Scripts/claude-tg-watchdog.py
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+Environment=WATCHDOG_NAME=Lucia
+Environment=WATCHDOG_PROJECT_DIR=/home/dzbohan/.claude/projects/-home-dzbohan-Claude
+Environment=WATCHDOG_SERVICE=claude-tg.service
+
+[Install]
+WantedBy=default.target
