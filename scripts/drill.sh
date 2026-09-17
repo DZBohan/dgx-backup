@@ -9,7 +9,7 @@
 # Checks:
 #   1. confirm that a fixed list of required paths exists in the snapshot
 #   2. copy the snapshot to a temporary directory, excluding Projects
-#   3. check selected permissions, one executable bit, and broken relative symlinks
+#   3. check selected permissions, one executable bit, and symlinks the restore itself broke
 #   4. check the first token of ExecStart entries, accepting system paths without testing them
 #   5. parse four selected JSON and TOML configuration files
 #   6. compare recorded file counts with snapshot entries listed in the manifest
@@ -109,13 +109,54 @@ chk_mode .codex/telegram/.env 600
 chk_mode .claude/channels/telegram/.env 600
 [ -x "$WORK/home/Scripts/claude-tg-watchdog.py" ] && ok "watchdog is executable" || bad "watchdog lost its executable bit"
 
-# Report up to 20 broken links with relative targets. Absolute targets are skipped,
-# including those that point into the original home directory.
-BROKEN=$(find "$WORK/home" -xtype l 2>/dev/null | while read -r l; do
-    t=$(readlink "$l"); case "$t" in /*) ;; *) echo "$l";; esac
-done | head -20)
-if [ -z "$BROKEN" ]; then ok "no broken relative symlinks"; else
-    bad "broken relative symlinks:"; echo "$BROKEN" | sed "s|$WORK/home/|     |"
+# The question worth asking is not "is this link broken" but "did the restore break it".
+# The first real run against a real snapshot failed here on 37 links under .local/share/mamba/pkgs
+# that were already broken on the source machine: conda package caches are full of them. The backup
+# had copied them faithfully, so flagging them said nothing about the backup and buried anything
+# that would have.
+#
+# So each broken link in the restore is resolved against the snapshot as well, which splits them:
+#   - broken in the snapshot too   -> already broken when the backup ran, not the backup's doing
+#   - resolves in the snapshot     -> the drill's own Projects exclusion, not a real loss
+#   - neither                      -> the restore actually lost something. This is the failure.
+SYMLINK_REPORT=$(python3 - "$WORK/home" "$SNAP/home" <<'PY'
+import os, sys
+work, snap = sys.argv[1], sys.argv[2]
+pre_existing = excluded = real = 0
+examples = []
+for root, dirs, names in os.walk(work, onerror=lambda e: None):
+    for n in dirs + names:
+        p = os.path.join(root, n)
+        if not os.path.islink(p):
+            continue
+        target = os.readlink(p)
+        if target.startswith("/"):
+            continue                     # absolute targets are the new machine's problem, not the backup's
+        if os.path.exists(p):
+            continue
+        rel = os.path.relpath(p, work)
+        in_snap = os.path.join(snap, rel)
+        if not os.path.exists(in_snap):  # broken in the snapshot as well
+            pre_existing += 1
+        elif rel.startswith("Projects/") or os.path.realpath(in_snap).find("/Projects/") >= 0:
+            excluded += 1
+        else:
+            real += 1
+            if len(examples) < 20:
+                examples.append(rel)
+print("PRE=%d EXCL=%d REAL=%d" % (pre_existing, excluded, real))
+for e in examples:
+    print("   " + e)
+PY
+)
+PRE=$(echo "$SYMLINK_REPORT" | head -1 | sed -E 's/.*PRE=([0-9]+).*/\1/')
+EXCL=$(echo "$SYMLINK_REPORT" | head -1 | sed -E 's/.*EXCL=([0-9]+).*/\1/')
+REAL=$(echo "$SYMLINK_REPORT" | head -1 | sed -E 's/.*REAL=([0-9]+).*/\1/')
+if [ "${REAL:-0}" -eq 0 ]; then
+    ok "no symlink lost by the restore (${PRE:-0} were already broken before the backup, ${EXCL:-0} point into the excluded Projects)"
+else
+    bad "the restore lost $REAL symlink target(s) that resolve in the snapshot:"
+    echo "$SYMLINK_REPORT" | tail -n +2
 fi
 echo
 
