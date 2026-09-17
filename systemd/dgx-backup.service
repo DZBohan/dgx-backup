@@ -1,0 +1,14 @@
+[Unit]
+Description=Weekly snapshot of $HOME onto the DGXBACKUP drive
+# Do not queue behind a missing drive: the script decides whether the drive is there.
+After=network-online.target
+
+[Service]
+Type=oneshot
+# Exit 75 (EX_TEMPFAIL) means "drive not plugged in". That is not a failure, so it must not be
+# recorded as one, otherwise the "no successful backup in two weeks" alarm can never tell the
+# difference between a drive left at home and a backup that is actually broken.
+SuccessExitStatus=0 75
+ExecStart=%h/Projects/GitHub/dgx-backup/scripts/backup-if-present.sh
+Nice=10
+IOSchedulingClass=idle
