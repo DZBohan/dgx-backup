@@ -162,6 +162,7 @@ Decided to keep, against the usual instinct:
 | Risk | Response |
 |---|---|
 | The backup drive fails when the source machine is already unavailable | A single drive cannot solve this; see open issues |
+| A site-wide incident destroys machine and backup together | Partly addressed: the drive is stored away from the machine rather than beside it |
 | Silent corruption | `verify.sh` records checksums in `verify/` and compares checked files with earlier records, reporting content changes when size and modification time remain unchanged within its tolerance |
 | Synchronization propagates source mistakes | Retain historical hard-link snapshots |
 
@@ -218,12 +219,11 @@ The `dgx-backup.timer` systemd user timer is configured for Sunday at 02:00 loca
 
 ## Open issues
 
-- **Both copies remain in one room.** Fire, theft, flooding, or another shared
-  incident could destroy both. An off-site copy is outside this design. Bohan
-  must confirm whether institutional storage holds another copy of the 1.3 TB
-  of patient-derived data in `~/Projects`.
-- **The drive is unencrypted.** This remains conditional on keeping it locked
-  in the office; reconsider before that assumption changes.
+- **The drive is unencrypted, by decision.** Bohan chose this and reaffirmed it
+  on 2026-09-16 knowing the drive holds SSH private keys, bot tokens and
+  patient-derived research data, on the basis that he keeps it physically
+  secured. Recorded here so that whoever handles the drive knows what is on it,
+  not as an open question.
 - **The one-hour recovery target is unverified.** `drill.sh` checks selected
   files and metadata. It does not measure recovery from bare hardware to a
   working machine. The target remains an estimate until a full recovery is timed.

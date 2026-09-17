@@ -78,9 +78,10 @@ at the files looks finished while the machine still does not work:
 
 Stated plainly, because a backup that is trusted for more than it does is worse than none:
 
-- **It lived in the same room as the machine it backs up.** Fire, theft, or flooding takes both.
-- **It is not encrypted.** That was a deliberate choice made while both the machine and the drive
-  stayed locked in one office. If this drive is now somewhere else, that assumption has already
-  failed: it contains SSH private keys, API tokens, and patient-derived research data.
+- **It is not encrypted.** A deliberate decision by the drive's owner, who keeps it physically
+  secured and judges that sufficient. Handle it accordingly: it contains SSH private keys, API
+  tokens, and patient-derived research data. That inventory is stated as a fact about what is on
+  the drive, not as an argument against the decision.
 - **It is one drive.** Drives fail, and the day you need this one is the day the other copy is
   already gone, so the two failures are not independent.
+- **It holds one machine's home directory, not a bootable system.** See "What this drive is".
