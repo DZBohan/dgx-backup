@@ -2,10 +2,14 @@
 Description=Weekly snapshot of $HOME onto the DGXBACKUP drive
 
 [Timer]
-# Sunday 02:00 local time. The system timezone is America/Los_Angeles as of 2026-09-15, so this
-# is Bohan's Sunday, not UTC's.
-OnCalendar=Sun 02:00
-# The drive is usually not plugged in at 02:00, and the machine may be off. Persistent makes the
+# Friday 00:00 local time, which is Thursday night. The system timezone is America/Los_Angeles
+# as of 2026-09-15, so this is Bohan's Friday, not UTC's.
+#
+# Mid-week rather than the weekend, chosen 2026-09-17: the drive travels home with Bohan, so a
+# weekend schedule would find it unplugged most weeks and skip quietly. The run is harmless when
+# the drive is absent, but a backup that reliably does not happen is not a backup.
+OnCalendar=Fri 00:00
+# The drive may still be absent, and the machine may be off. Persistent makes the
 # run happen after boot if it was missed, and RandomizedDelay keeps it off the exact minute.
 Persistent=true
 RandomizedDelaySec=15m

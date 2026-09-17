@@ -8,6 +8,7 @@
 #   2. read SMART before writing, so a drive that is already failing is not handed 1.4 TB.
 #   3. run backup.sh, then verify.sh, then check how long it has been since the last good run and
 #      tell Bohan over Telegram if that is too long.
+#   4. rehearse a restore with drill.sh, and say so if it does not pass.
 #
 # The staleness alarm is the part that matters. A backup that silently stops running looks exactly
 # like a backup that is working, until the day you need it.
@@ -101,6 +102,10 @@ if ! "$HERE/verify.sh"; then
     exit 1
 fi
 
+# The backup succeeded at this point. Record it before the drill, because the drill answers a
+# different question ("is this snapshot restorable") and its failure must not make a successful
+# backup look like it never ran, which would fire the staleness alarm on a drive that is fine.
+#
 # TEST_MODE never touches the real state file: a test must not leave a "last success" timestamp
 # behind for the next real run to believe.
 if [ "${TEST_MODE:-0}" = "1" ]; then
@@ -108,7 +113,48 @@ if [ "${TEST_MODE:-0}" = "1" ]; then
 else
     date +%s >"$STATE_DIR/last-success"
 fi
+
+# ---------- 4. rehearse the restore ----------
+# Added 2026-09-17. The point of running this unattended is that the drill found a design error in
+# itself the first time it met real data, and chasing an unrelated question the same day found two
+# in verify.sh. Checks that only run when somebody remembers to run them do not find that class of
+# problem. Roughly 20 minutes and ~17 GB of scratch space.
+DRILL_NOTE=""
+DRILL_RC=0
+TMPFREE=$(df -Pk /tmp | tail -1 | awk '{print $4}')
+if [ "${SKIP_DRILL:-0}" = "1" ]; then
+    DRILL_NOTE="（本次跳过演练）"
+elif [ "${TMPFREE:-0}" -lt 41943040 ]; then
+    # 40 GB, comfortably above the ~17 GB the copy needs. Skipping is right here: a drill that dies
+    # halfway through for lack of scratch space says nothing about the backup.
+    log "only $((TMPFREE/1024/1024)) GB free on /tmp; skipping the drill"
+    DRILL_NOTE="（/tmp 空间不足，跳过了演练）"
+    tg "⚠️ 本周备份和校验都正常，但 /tmp 只剩 $((TMPFREE/1024/1024))G，还原演练跳过了。"
+else
+    log "running the restore drill"
+    DRILL_START=$(date +%s)
+    if DRILL_OUT=$("$HERE/drill.sh" 2>&1); then
+        DRILL_NOTE="，还原演练通过"
+        log "drill passed in $(( $(date +%s) - DRILL_START ))s: $(echo "$DRILL_OUT" | tail -1)"
+
+    else
+        DRILL_RC=1
+        DRILL_NOTE="，但还原演练没通过"
+        log "drill failed after $(( $(date +%s) - DRILL_START ))s"
+        # A drill failure does not mean the backup is bad, and does not mean it is good. It means
+        # something the restore depends on is missing or wrong, which is worth a person looking.
+        tg "⚠️ 备份和校验都正常，但还原演练没通过：
+
+$(echo "$DRILL_OUT" | grep '❌' | head -8)
+
+完整输出：journalctl --user -u dgx-backup.service"
+        log "drill failed:"
+        echo "$DRILL_OUT"
+    fi
+fi
+
 SIZE=$(df -h "$MP" | tail -1 | awk '{print $4}')
 COUNT=$(ls -1 "$MP/backups/$HOSTNAME_S/snapshots" 2>/dev/null | wc -l)
-log "done; $COUNT snapshots on the drive, $SIZE free"
-tg "✅ 每周备份完成。盘上现在有 $COUNT 份快照，剩余空间 $SIZE。"
+log "done; $COUNT snapshots on the drive, $SIZE free$DRILL_NOTE"
+tg "✅ 每周备份完成$DRILL_NOTE。盘上现在有 $COUNT 份快照，剩余空间 $SIZE。"
+exit $DRILL_RC

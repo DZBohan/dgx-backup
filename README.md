@@ -222,7 +222,8 @@ The six checks are:
    This checks counts, not file contents or entries omitted from the manifest.
 
 `~/Projects` contains 1.3 TB and uses the same rsync copy mechanism. Excluding it
-keeps the copy small enough for weekly drills. The manifest check still counts
+keeps the copy small enough to run every week, which it does: since 2026-09-17
+`backup-if-present.sh` runs the drill after backup and verify. The manifest check still counts
 its snapshot files, but the drill does not test copying or reading all of its data.
 
 The drill invokes rsync directly, not `restore.sh`. It does not prove that a clean
@@ -231,7 +232,12 @@ one hour. Those outcomes require a full recovery exercise on a suitable machine.
 
 ## Automation
 
-The `dgx-backup.timer` systemd user timer is configured for Sunday at 02:00 local.
+The `dgx-backup.timer` systemd user timer runs Friday at 00:00 local, which is
+Thursday night. It was Sunday 02:00 until 2026-09-17; the drive travels home at
+weekends, so a weekend schedule would have found it unplugged and skipped quietly
+most weeks.
+
+Each run is backup, then verify, then drill.
 
 - If the drive is absent, the run exits with code 75, which the unit treats as
   success. This distinguishes a skipped run from an error; the staleness check
@@ -240,6 +246,17 @@ The `dgx-backup.timer` systemd user timer is configured for Sunday at 02:00 loca
 - After more than 14 days without a successful backup, a Telegram reminder is
   sent using `sendMessage`. No `getUpdates` poller is started, so the reminder
   does not compete with either assistant's bridge for incoming messages.
+- After backup and verify, the run rehearses a restore with `drill.sh`, needing
+  ~17 GB of scratch space. Duration depends almost entirely on the page cache:
+  measured at about 15 minutes cold and 12 seconds when the snapshot's non-
+  `Projects` files are still resident, which on a 121 GB machine they often are.
+  Expect the cold figure for a weekly run at midnight. It is skipped with a warning when `/tmp`
+  has under 40 GB free, because a drill that dies for lack of space says nothing
+  about the backup. `SKIP_DRILL=1` skips it deliberately.
+- A failing drill sends a Telegram message and makes the unit fail, but does not
+  undo the recorded backup success. The backup succeeding and the snapshot being
+  restorable are different questions, and treating a drill failure as a missing
+  backup would fire the staleness alarm on a drive that is fine.
 - Each run appends a result line to the drive's `backup.log`.
 
 ## Retention
