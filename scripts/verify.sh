@@ -123,9 +123,65 @@ for rel, size, mtime in files:
     else:
         unchanged.append((rel, size, mtime))
 
+# Unchanged files are sampled rather than all re-read: hashing 1.4 TB weekly would take hours and
+# wear the drive for little gain. Which files get sampled is the part that matters.
+#
+# This used to be random.sample under a fixed seed, which drew the same 2,000 files every week
+# forever. The other 224,000 were never re-read, and those are exactly the ones at risk: research
+# data in ~/Projects sits untouched for years, which is when rot happens and when nothing else
+# would notice. Weekly "verification" was covering 1% of the data permanently.
+#
+# Reseeding randomly each week does not fix it either. Independent draws are a coupon-collector
+# problem, so covering 226,660 files at 2,000 a week would take about 1,400 weeks, not 113.
+#
+# So the sample rotates instead: the list is walked in path order, resuming where the last run
+# stopped, which reaches every file in ceil(N / sample) runs with no repeats. The cursor stores the
+# last path rather than an index, so files added or deleted in between shift nothing.
+#
+# A byte budget caps the work as well, because a window can land entirely on large files. Whichever
+# limit is reached first ends the window, and the cursor keeps the position either way, so progress
+# is made every run regardless.
 if not full and unchanged:
-    random.seed(0)          # deterministic: the same sample every week, so repeated rot is caught
-    todo += random.sample(unchanged, min(sample_n, len(unchanged)))
+    unchanged.sort(key=lambda t: t[0])
+    cursor_path = os.path.join(os.path.dirname(out), ".sample-cursor")
+    try:
+        last = open(cursor_path, encoding="utf-8").read().strip()
+    except OSError:
+        last = ""
+
+    start = 0
+    if last:
+        lo, hi = 0, len(unchanged)
+        while lo < hi:                       # first entry strictly after the last one checked
+            mid = (lo + hi) // 2
+            if unchanged[mid][0] <= last:
+                lo = mid + 1
+            else:
+                hi = mid
+        start = lo
+    if start >= len(unchanged):
+        start = 0                            # wrapped: begin another pass over the whole tree
+
+    budget = int(os.environ.get("VERIFY_SAMPLE_BYTES", str(20 * 1024**3)))
+    picked, used = [], 0
+    for i in range(len(unchanged)):
+        rel, size, mtime = unchanged[(start + i) % len(unchanged)]
+        if len(picked) >= sample_n or (picked and used + size > budget):
+            break
+        picked.append((rel, size, mtime))
+        used += size
+    if picked:
+        todo += picked
+        try:
+            tmp = cursor_path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.write(picked[-1][0])
+            os.replace(tmp, cursor_path)     # same atomic write as everything else that persists
+        except OSError as e:
+            print("  could not save the sample cursor, next run will repeat this window: %s" % e)
+        pos = start + len(picked)
+        print("  sampling %d unchanged files (%.1f GB), %d-%d of %d in path order"
+              % (len(picked), used / 1e9, start + 1, min(pos, len(unchanged)), len(unchanged)))
 
 def sha256(path):
     h = hashlib.sha256()

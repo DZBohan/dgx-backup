@@ -171,6 +171,21 @@ contents. By default, `verify.sh` hashes new or changed files and a sample of
 unchanged files; `--full` hashes all files. Sampled verification does not check
 every unchanged file on every run.
 
+**The sample rotates.** It walks the file list in path order, resuming where the
+last run stopped, so every file is reached in `ceil(N / sample)` runs: about 114
+weeks for this machine's 226,660 files at 2,000 a week. A byte budget (20 GB by
+default, `VERIFY_SAMPLE_BYTES`) ends a window early when it lands on large files,
+so a weekly run stays bounded.
+
+This replaced a fixed random seed that drew the same 2,000 files every week
+forever, leaving 224,000 never re-read. Those are the ones that matter: research
+data in `~/Projects` sits untouched for years, which is exactly where silent
+corruption happens and where nothing else would notice it.
+
+Reseeding randomly each week would not have fixed it. Independent weekly draws
+are a coupon-collector problem, so full coverage would take roughly 1,400 weeks
+rather than 114.
+
 `scripts/selftest.sh` checks that the corruption detector actually detects
 corruption. It builds a small snapshot, rots a file the way a disk does (content
 changes while size and modification time do not), and asserts that the failure is
