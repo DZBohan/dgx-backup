@@ -1,174 +1,203 @@
 # dgx-backup
 
-**把 spark-5f4a 上不可替代的东西备份到一块外接硬盘，并且在另一台 Linux 机器上还原回来。**
+Back up irreplaceable data from spark-5f4a to an external drive and restore it on
+another Linux machine.
 
-目标不是克隆系统。目标是：**换机器或者主机崩掉时，一小时内把数据、配置、两个 agent 的记忆
-恢复到当时的样子。** 插盘即开机的整盘克隆不在范围内，也不建议追（见「不做什么」）。
+**Status: design agreed; scripts have not been written.** The 6 TB hard drive is
+ready: ext4, label `DGXBACKUP`, mounted at `/media/dzbohan/DGXBACKUP`.
+All workflows below are planned, not deployed or tested.
 
-> ⚠️ **当前状态：设计已定，脚本尚未写。** 本文件先把设计和决策记下来，因为这些判断此前只存在于
-> 一次 Telegram 对话里，无法追溯。脚本、验证结果、实测数据会在写完之后补进来，
-> 届时本行会被替换成实际状态。
+The recovery target is a clean Ubuntu ARM64 machine with four services running,
+both agents' memories and instructions restored, and `~/Projects` back in place
+within one hour. That duration is an estimate pending a restore drill.
 
----
+This document records decisions and their reasons so recovery does not depend on
+reconstructing a Telegram conversation.
 
-## 为什么有这个 repo
+## Scope
 
-Bohan 2026-09-16：「你现在告诉我怎么设计，但这个东西是不被记录的，以后出现问题我没有办法追溯。」
+**Everything under `$HOME`, minus an explicit exclusion list.**
 
-对。备份这件事的特点是**平时看不出对错，出事那一刻才知道**。所以设计依据、取舍、以及
-「什么被排除了、为什么」必须写下来，而不是留在对话里。
+This was originally written the other way round: a list of directories to include. Vivian read
+that draft and pointed out that `~/.ssh` and `~/.local/bin` were missing from it, even though the
+SSH key is named elsewhere in this document. Sweeping the home directory afterwards turned up more
+that the list had dropped: `~/.claude.json`, `~/.gnupg`, `~/.deepcell`, `~/Documents`, `~/.bun`.
 
----
+That is the argument for inverting the rule. **An include list fails silently**: whatever you
+forget is simply absent, and nothing reports it until the day you restore. **An exclusion list
+fails cheaply**: whatever you forget is copied, and it costs disk space. Backups should be wrong
+in the second direction.
 
-## 一、范围
+What the home directory holds, and why the irreplaceable parts matter:
 
-### 做什么
-
-| 类别 | 路径 | 量级 | 为什么不可替代 |
+| Content | Paths | Approximate size | Why preserve it |
 |---|---|---|---|
-| 科研数据 | `~/Projects` | ~1.3 T | 病人来源影像，重采不了 |
-| Lucia（Claude）的一切 | `~/.claude`、`~/Claude` | ~13 G | 配置、memory、全部对话记录、CLAUDE.md |
-| Vivian（codex）的一切 | `~/.codex`、`~/Codex`、`~/codex-assistant` | ~290 M | 规矩、长期记忆、桥接与整套 kit |
-| 运行脚本 | `~/Scripts` | 小 | 服务靠它们活着 |
-| 运维日志 | `~/logs` | 小 | 事故复盘、决策依据 |
-| 两边共读的事实 | `~/Shared` | 小 | SERVER.md |
-| 服务定义 | `~/.config/systemd/user` | 小 | 四个服务 |
-| 系统级清单 | 见 `docs/system-level.md`（待写） | 小 | 不是备份，是「新机器上要装什么、改什么」的复原说明 |
+| Research data | `~/Projects` | 1.3 TB | Patient-derived images cannot be collected again |
+| Lucia (Claude) | `~/.claude`, `~/Claude`, `~/.claude.json` | 13 GB | Configuration, memory, all conversations, CLAUDE.md |
+| Vivian (codex) | `~/.codex`, `~/Codex`, `~/codex-assistant` | 290 MB | Instructions, long-term memory, bridge, supporting kit |
+| Credentials | `~/.ssh`, `~/.gnupg` | Small | Without the SSH key a restored machine cannot reach GitHub |
+| Model cache | `~/.deepcell` | 3.7 GB | Normally regenerable, but this network blocks the Hugging Face CDN, so re-downloading may not be possible. Bohan decided on 2026-09-16 to keep it |
+| Operational scripts | `~/Scripts` | Small | Required by services |
+| Operational logs | `~/logs` | Small | Incident history and decision records |
+| Shared environment facts | `~/Shared` | Small | SERVER.md |
+| User service definitions | `~/.config/systemd/user` | Small | Four services |
+| Tool links | `~/.local/bin` | Small | Symlinks to the codex-assistant tools; the codex binaries there are re-downloadable |
+| System setup inventory | `docs/system-level.md` (planned) | Small | How to reinstall software and recreate settings, not the binaries themselves |
 
-### 不做什么，以及为什么
+This table documents what is worth knowing about the contents. **It is not the selection rule.**
+The selection rule is the exclusion list below.
 
-- **不做整盘镜像。** 需要 root（Lucia 没有 sudo），而且 DGX Spark 是 ARM64 + NVIDIA，
-  驱动、UUID、引导都绑硬件，镜像不保证能在别的机器上开机。**追这个是浪费时间。**
-- **不备份能重装的东西**：系统包、CUDA、venv 里的依赖。记清单，不记二进制。
-- **不做加密**（Bohan 2026-09-16 决定：机器和盘都锁在办公室）。
-  ⚠️ 代价要知道：盘上会有两个 bot 的 token、Lucia 的登录凭据、SSH 私钥、以及病人来源数据。
-  **这个决定跟着办公室走**，哪天盘要离开那个房间，先回来重新决定。
+### Exclusions and tradeoffs
 
----
+- **No bootable whole-disk clone.** It requires root, which Lucia does not have.
+  DGX Spark's ARM64/NVIDIA drivers, UUIDs, and boot configuration also make a clone
+  unreliable for booting different hardware. Portable data and configuration
+  recovery is the goal.
+- **No reinstallable binaries:** system packages, CUDA, or virtual-environment
+  dependencies. Record installation inventories instead.
+- **No encryption**, as agreed by Bohan on 2026-09-16, conditional on both machine
+  and drive remaining locked in the office. The stated exposure includes both
+  bots' tokens, Lucia's login credentials, SSH private keys, and patient-derived
+  data. Reconsider encryption before the drive leaves that room or the physical
+  security assumption changes.
 
-## 二、盘的格式：必须 ext4
+## Why ext4
 
-那块盘是 6 T 机械盘，到手多半是 exfat 或 NTFS。**做备份必须重新格成 ext4**，三个理由，缺一不可：
+The design requires ext4 rather than exFAT for three reasons:
 
-1. **exfat 不记 Unix 权限。** 权限丢了，还原之后服务起不来、`.env` 变成人人可读。
-2. **exfat 不支持符号链接。** `~/.local/bin` 下四个工具都是软链，还原回去会变成断链或者副本。
-3. **exfat 没有硬链接。** 没有硬链接就做不了增量快照，每周一份全量 1.4 T，6 T 只能放四份。
+1. exFAT does not preserve Unix permissions. Losing them can prevent services
+   from starting or make `.env` files readable by everyone.
+2. exFAT does not support symbolic links. The four tools under `~/.local/bin`
+   use symlinks; their link structure must survive recovery.
+3. exFAT does not support hard links, required by this incremental snapshot
+   design. Weekly full copies of about 1.4 TB would leave room for only about
+   four copies on a 6 TB drive.
 
-代价：格式化会清空，而且 Mac 和 Windows 读不了。Bohan 2026-09-16 同意。
+Formatting erases existing contents, and macOS and Windows cannot read ext4
+natively. Bohan accepted these tradeoffs on 2026-09-16.
 
----
+## Why snapshots rather than a mirror
 
-## 三、为什么是快照而不是镜像
+A plain rsync mirror can propagate accidental deletions and corrupted files to
+the backup, replacing the last good copy at the next synchronization.
 
-**镜像（纯 rsync 同步）最大的坑：它会忠实地把错误也同步过去。** 误删一个目录、某个文件悄悄损坏，
-下一次同步就把删除和损坏复制到备份里，原来那份好的就没了。
+The plan uses weekly `rsync --link-dest` snapshots. Unchanged files share storage
+through hard links to the previous snapshot; historical versions remain
+available after source files change or disappear. Of roughly 1.4 TB, about 1.3 TB
+is mostly static research data, so a dozen or more snapshots may add only tens
+of GB. This is an estimate, not a measured storage budget.
 
-所以用 **`rsync --link-dest` 的硬链接快照**：每周一份，没变的文件跟上一份共用同一份数据块，
-不占额外空间。1.4 T 里 1.3 T 是基本不动的科研数据，所以十几份历史加起来可能只多占几十 G。
-误删和损坏有回头路。
+Connecting the drive once a week is sufficient for the planned schedule; it
+need not remain connected continuously.
 
-**因此：一周插一次盘就够，不需要一直插着。**
+## Drive layout and snapshot identification
 
----
+The drive will carry its own recovery instructions and script, independent of
+this repository. The restore script will read manifests rather than guess.
 
-## 四、盘上的布局（回答「还原时怎么分得清谁是谁」）
-
-Bohan 2026-09-16 问：在第三台机器上还原时，怎么知道哪些是历史快照、哪些是真实数据、
-哪些该配置、哪些该忽略？**答案是布局本身要能自解释，还原脚本读清单而不是靠猜。**
-
-```
-<盘挂载点>/
-  README-RESTORE.md            ← 放在盘的最外层。捡到这块盘的人先看这个
-  restore.sh                   ← 还原脚本，跟盘一起走，不依赖仓库
+```text
+/media/dzbohan/DGXBACKUP/
+  README-RESTORE.md
+  restore.sh
   backups/
-    spark-5f4a/                ← 按主机名分。以后备份第二台机器不会混
+    spark-5f4a/
       snapshots/
-        2026-09-16T18-30-00/   ← 本地时间命名（系统时区已是 America/Los_Angeles）
-          MANIFEST.json        ← 这一份快照的自述
-          home/                ← 家目录内容，原样的目录结构
+        2026-09-16T18-30-00/
+          MANIFEST.json
+          home/
         2026-09-23T18-30-00/
         ...
-      latest -> snapshots/2026-09-23T18-30-00   ← 还原默认用它，不用挑
-      verify/                  ← 校验和历史，用来发现静默损坏
-      backup.log               ← 每次跑的记录
+      latest -> snapshots/2026-09-23T18-30-00
+      verify/
+      backup.log
 ```
 
-**`MANIFEST.json` 里必须有**（还原脚本读它，不猜）：
+Snapshot names will use local time (`America/Los_Angeles`). `home/` will preserve
+the original home-directory structure. Host directories separate machines, dated
+directories retain history, and `latest` selects the default restore snapshot.
+`verify/` will hold checksum history.
 
-- 主机名、快照时间（本地和 UTC 都写）、备份脚本版本
-- 这次**包含**了哪些路径、**排除**了哪些路径（排除规则原文，不是「见文档」）
-- 每个顶层条目的大小和文件数
-- 源机器的关键事实：OS 版本、架构、时区、已装的关键软件版本（codex 等）
-- 一句话说明这份快照是「完整」还是「中途失败」
+Each `MANIFEST.json` must record:
 
-**分得清谁是谁，靠的是这三件**：按主机名分目录、`latest` 指向该用哪份、`MANIFEST.json` 说明
-这份里有什么没有什么。**不靠人去记。**
+- Hostname, snapshot time in both local time and UTC, and backup script version.
+- Included paths and the literal exclusion rules for that run, not a reference
+  to documentation that may later change.
+- Size and file count for each top-level entry.
+- Source OS version, architecture, timezone, and key software versions, including codex.
+- Whether the snapshot completed or failed partway through.
 
----
+The host directory, `latest`, and manifest will identify the source, default
+recovery point, contents, exclusions, and completion status.
 
-## 五、排除什么（这是需要被记录的决定，不是脚本里的一行 flag）
+## Exclusion rules
 
-排除规则会写进 `docs/exclude.md` 和脚本，两边必须一致。原则：**能重建的不备份，
-但「能重建」要能说清楚怎么重建。**
+`docs/exclude.md` and the script must agree. Every change to this list records its date and
+reason. **Exclude something only when the way to rebuild it is written down.**
 
-计划排除（待写脚本时定稿并记录理由）：
+Measured on 2026-09-16:
 
-- `**/.venv/`、`**/venv/`、`**/node_modules/`、`**/__pycache__/` —— 依赖，记清单不记内容
-- `~/snap/`、`~/.cache/` —— 缓存
-- `~/.codex/sessions/`？**待定**：那是 codex 的会话 rollout，`turn_context` 的来源，
-  排查问题时真的用过（2026-09-14 查模型和推理档就是靠它）。**倾向保留**，先量一下多大。
-- 外接盘自己的挂载点 —— 否则会把备份备份进备份
+| Excluded | Size | Reason |
+|---|---|---|
+| `**/.venv/`, `**/venv/`, `**/node_modules/`, `**/__pycache__/` | 25.2 GB across 3,896 directories | Dependencies and generated files. Rebuilt from the inventories in `docs/system-level.md` |
+| `~/.cache/` | 6.9 GB | Cache |
+| `~/codex-upgrade-0.154/` | 389 MB | Download staging for one upgrade; the tarballs are re-fetchable and their sha256 are recorded in the upgrade guide |
+| `~/snap/` | 345 MB | Snap per-user state, regenerated on install |
+| `~/.nv/` | 236 MB | NVIDIA shader cache |
+| `~/.bun/` | 117 MB | Bun runtime, reinstallable |
+| `~/codex-assistant-test/` | 1 MB | Scratch copy, recreated by `cp -r ~/codex-assistant` whenever a patch is tested |
+| The drive's own mount point | — | Otherwise the backup backs up the backup |
 
-⚠️ **排除名单每改一次都要记进 `docs/exclude.md` 并写日期和理由。**
-「当时为什么排除了它」是出事那天唯一要查的东西。
+Decided to keep, against the usual instinct:
 
----
+- **`~/.deepcell` (3.7 GB)** is a model cache and would normally be excluded. This network blocks
+  the Hugging Face CDN, so re-downloading may be impossible without carrying files in from another
+  network. Bohan decided on 2026-09-16 to keep it. **Size is not the reason; retrievability is.**
+- **`~/.codex/sessions` (28 MB)** holds codex session rollouts. They carry `turn_context`, which is
+  how model and reasoning effort were verified on 2026-09-14. Small and diagnostic; keep.
 
-## 六、针对三类真实风险的设计
+## Integrity and drive health
 
-寿命不是这件事的正确问题。一周通电一次、无物理冲击的机械盘，三到五年是常态，
-很可能比下一台 DGX 活得久。真正的风险是另外三件：
-
-| 风险 | 设计上怎么应对 |
+| Risk | Planned response |
 |---|---|
-| **它在你最需要的那一刻坏**（需要备份，通常正因为主机已经出事，两件事不独立） | 单盘解决不了。见「还没解决的」 |
-| **静默损坏**：ext4 不做数据校验，某个扇区悄悄变质，rsync 不会知道 | 备份后算校验和存进 `verify/`，下次比对；**两边都没改过但校验和变了 = 静默损坏，当场报警** |
-| **同步把错误也同步过去** | 硬链接快照，保留历史，误删有回头路 |
+| The backup drive fails when the source machine is already unavailable | A single drive cannot solve this; see open issues |
+| Silent corruption | Store checksums after backup in `verify/` and compare on later runs; alert if checksums change despite neither side having an expected change |
+| Synchronization propagates source mistakes | Retain historical hard-link snapshots |
 
-另外每次备份读一遍 **SMART**（重分配扇区、待定扇区、通电小时、启停次数），
-**在它坏之前报，而不是等它坏**。
+ext4 does not checksum file data, and ordinary rsync synchronization alone does
+not establish that unchanged data remains intact. Each backup will also read
+SMART reallocated sectors, pending sectors, power-on hours, and start/stop counts
+to flag signs of drive failure early.
 
----
+## Restore validation
 
-## 七、还原：没试过的备份不叫备份
+Once written, `restore.sh` must be exercised in a temporary directory to verify
+that it restores usable configuration. Results and measured duration will be
+recorded in `docs/restore-drill.md`. The one-hour recovery target remains
+unverified until tested.
 
-`restore.sh` 写完之后，**必须在一个临时目录里真跑一遍**，验证能还原出可用的配置，
-而不是写完就宣布可用。验证结果和实际耗时会记进 `docs/restore-drill.md`。
+## Planned automation
 
-还原的目标是可复核的：在一台干净的 Ubuntu ARM64 机器上，一小时内让
-四个服务起来、两个 agent 的记忆和规矩就位、`~/Projects` 回到原位。
+- A weekly systemd user timer. If the drive is absent, skip and log the run
+  without treating it as a failure.
+- A Telegram reminder after more than two weeks without a successful backup,
+  using the existing watchdog notification route.
+- Results written to the drive's `backup.log` and `~/logs/` after each run.
 
----
+## Open issues
 
-## 八、自动化
+- **Both copies remain in one room.** Fire, theft, flooding, or another shared
+  incident could destroy both. An off-site copy is outside this design. Bohan
+  must confirm whether institutional storage holds another copy of the 1.3 TB
+  of patient-derived data in `~/Projects`.
+- **The drive is unencrypted.** This remains conditional on keeping it locked
+  in the office; reconsider before that assumption changes.
+- **No restore drill has been performed.** The one-hour target is an estimate.
+- Exclusion rules are not final, particularly retention of codex session rollouts.
+- The scope table does not explicitly include `~/.local/bin` or `~/.ssh`,
+  despite the symlink rationale and private-key exposure described above.
+  Their inclusion or reconstruction needs to be specified before implementation.
 
-- 每周一次的 systemd user timer；**盘没插就跳过并记一行，不算失败**
-- 超过两周没有成功备份 → 通过 Telegram 提醒（复用看门狗那条路）
-- 每次跑完把结果写进 `backup.log` 和 `~/logs/`
+## Related records
 
----
-
-## 九、还没解决的（不要假装它已经解决了）
-
-- **这块盘和这台机器在同一个房间。** 做完之后是「一份」变「两份」，但两份都在一处。
-  火灾、失窃、整间屋子断电泡水，两份一起没。异地副本不在本设计范围内，
-  `~/Projects` 里 1.3 T 病人数据在单位存储上是否另有一份，**Bohan 需要自己确认**。
-- **加密关掉了**，跟着「盘锁在办公室」这个前提走。前提变了要重新决定。
-- 还原演练还没做，所以上面那句「一小时」目前是估计，不是实测。
-
----
-
-## 相关
-
-- 运维日志：`~/logs/`（按 Bohan 本地日历日命名）
-- 两边共读的环境事实：`~/Shared/SERVER.md`
+- Operational logs: `~/logs/`, named by Bohan's local calendar date.
+- Shared environment facts: `~/Shared/SERVER.md`.
