@@ -171,6 +171,16 @@ contents. By default, `verify.sh` hashes new or changed files and a sample of
 unchanged files; `--full` hashes all files. Sampled verification does not check
 every unchanged file on every run.
 
+`scripts/selftest.sh` checks that the corruption detector actually detects
+corruption. It builds a small snapshot, rots a file the way a disk does (content
+changes while size and modification time do not), and asserts that the failure is
+caught, that the file is named, and that the run does not overwrite the record it
+should be comparing against. A detector never fed a known positive reports
+success whether or not it works, and on 2026-09-17 this one did not work.
+
+When a run finds corruption it leaves the existing record in place and writes the
+new hashes to a `.suspect` file beside it, because the old record is the evidence.
+
 Each backup run reads SMART reallocated sectors, pending sectors, and power-on
 hours before writing, to identify signs of drive failure. SMART cannot predict
 every failure.
