@@ -186,6 +186,27 @@ Reseeding randomly each week would not have fixed it. Independent weekly draws
 are a coupon-collector problem, so full coverage would take roughly 1,400 weeks
 rather than 114.
 
+**What sampling does and does not establish.** A clean weekly sample does not mean
+the drive is clean. It means there is no *widespread* corruption. With 2,000 of
+226,701 files sampled, corruption affecting 0.1% of files is caught with 86%
+probability in one week and 99.97% within four; at 0.5% it is effectively
+certain. That is the realistic failure, since a degrading drive damages sectors in
+quantity rather than one file in isolation. A single rotted file has a 0.88%
+chance of being sampled in a given week and is otherwise found when the rotation
+reaches it, which can take up to 114 weeks.
+
+**And a rotted file usually cannot be recovered from an older snapshot**, contrary
+to what is intuitive about keeping history. Hard links mean a file unchanged
+between snapshots is one set of blocks, not one per snapshot: an unchanged file in
+`~/Projects` has the same inode in all four snapshots on this drive. Snapshots
+protect against deletion and mistaken edits, which give the new version its own
+blocks. They do not protect against media decay. That protection would need a
+second physical copy, which this design does not have.
+
+The earliest signal for media decay is therefore SMART, read before each run, not
+the checksum sample. **`smartmontools` is not installed on this machine**, so that
+layer is currently absent and each run logs `smartctl not installed`.
+
 `scripts/selftest.sh` checks that the corruption detector actually detects
 corruption. It builds a small snapshot, rots a file the way a disk does (content
 changes while size and modification time do not), and asserts that the failure is

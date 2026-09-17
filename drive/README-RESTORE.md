@@ -72,7 +72,14 @@ at the files looks finished while the machine still does not work:
   compares against the checksums recorded when the backup ran, reporting any file whose contents
   changed while size and modification time did not, which is what disk rot looks like. It does not
   overwrite the recorded checksums when it finds something: the old record is the evidence, and the
-  new hashes go to a `.suspect` file beside it. An earlier snapshot may still hold a good copy.
+  new hashes go to a `.suspect` file beside it.
+
+  **An earlier snapshot usually will not hold a good copy.** Snapshots share storage through hard
+  links, so a file that never changed between two snapshots is one set of blocks on the disk, not
+  two. Verified on this drive: an unchanged file in `~/Projects` has the same inode in all four
+  snapshots. If those blocks rot, every snapshot rots at once. Only a file that *changed* between
+  snapshots has independent copies, and those are a small minority of the data here. Recovery for
+  the rest means a source that is not this drive.
 - **The drive will not mount.** It is ext4. A Mac or Windows machine cannot read it without extra
   software; use a Linux machine.
 
@@ -84,6 +91,8 @@ Stated plainly, because a backup that is trusted for more than it does is worse 
   secured and judges that sufficient. Handle it accordingly: it contains SSH private keys, API
   tokens, and patient-derived research data. That inventory is stated as a fact about what is on
   the drive, not as an argument against the decision.
-- **It is one drive.** Drives fail, and the day you need this one is the day the other copy is
-  already gone, so the two failures are not independent.
+- **It is one drive, and one copy of the data.** Drives fail, and the day you need this one is the
+  day the other copy is already gone. The snapshot count is misleading here: hard links mean
+  unchanged files exist once physically, however many snapshots list them, so four snapshots are
+  not four copies.
 - **It holds one machine's home directory, not a bootable system.** See "What this drive is".
