@@ -3,13 +3,15 @@
 Back up irreplaceable data from spark-5f4a to an external drive and restore it on
 another Linux machine.
 
-**Status: design agreed; scripts have not been written.** The 6 TB hard drive is
-ready: ext4, label `DGXBACKUP`, mounted at `/media/dzbohan/DGXBACKUP`.
-All workflows below are planned, not deployed or tested.
+**Status: scripts written, timer installed, first full backup in progress.** The
+6 TB drive is ext4, labelled `DGXBACKUP`, mounted at `/media/dzbohan/DGXBACKUP`.
+`backup.sh`, `verify.sh`, `restore.sh` and `drill.sh` have each been run against
+test data; none has yet been run against a finished full snapshot, and no restore
+has been performed on a second machine.
 
 The recovery target is a clean Ubuntu ARM64 machine with four services running,
 both agents' memories and instructions restored, and `~/Projects` back in place
-within one hour. That duration is an estimate pending a restore drill.
+within one hour. That duration is an estimate. Nothing here has measured it.
 
 This document records decisions and their reasons so recovery does not depend on
 reconstructing a Telegram conversation.
@@ -160,59 +162,59 @@ Decided to keep, against the usual instinct:
 | Risk | Response |
 |---|---|
 | The backup drive fails when the source machine is already unavailable | A single drive cannot solve this; see open issues |
-| Silent corruption | `verify.sh` stores checksums in `verify/` and compares them on later runs, reporting any file whose contents changed while its size and modification time did not |
+| Silent corruption | `verify.sh` records checksums in `verify/` and compares checked files with earlier records, reporting content changes when size and modification time remain unchanged within its tolerance |
 | Synchronization propagates source mistakes | Retain historical hard-link snapshots |
 
-ext4 does not checksum file data, and rsync alone does not establish that
-unchanged data stayed intact. Each run reads SMART reallocated sectors, pending
-sectors and power-on hours before writing, so a drive that is starting to fail
-is flagged while it can still be replaced rather than discovered from a failed
-restore.
+ext4 does not checksum file data, and rsync alone does not verify unchanged file
+contents. By default, `verify.sh` hashes new or changed files and a sample of
+unchanged files; `--full` hashes all files. Sampled verification does not check
+every unchanged file on every run.
+
+Each backup run reads SMART reallocated sectors, pending sectors, and power-on
+hours before writing, to identify signs of drive failure. SMART cannot predict
+every failure.
 
 ## Restore validation
 
-`scripts/drill.sh` rehearses a restore without a second machine. There is no
-spare Linux box here, and waiting for one would mean the restore path is first
-exercised on the day it is needed.
+`scripts/drill.sh` copies a snapshot into a temporary directory and checks selected
+recovery requirements without sudo or a spare Linux machine. This allows regular
+checks before a second machine is available.
 
-The drill is built around what actually goes wrong. A restore rarely fails
-because rsync cannot copy a file. It fails because something the machine refers
-to was never in scope, nobody noticed, and it is missing when it matters. That
-question is answerable on this machine today. The drill:
+The six checks are:
 
-1. checks that a concrete list of files the running system depends on is present
-   in the snapshot, each entry paired with what breaks without it
-2. restores everything except `~/Projects` into a temporary directory
-3. checks modes and symlinks survived, because a private key restored at 644
-   means no git over SSH and no error that says so
-4. checks every `ExecStart=` path in the restored unit files exists inside the
-   restored tree, since a unit whose binary is missing fails with a message that
-   does not name the cause
-5. parses the JSON and TOML configuration out of the snapshot, which catches a
-   file torn by being copied while it was being rewritten
-6. compares the manifest's own counts against what is really on the drive
+1. Check a fixed list of required snapshot paths. Each entry records why it is needed.
+2. Copy the snapshot into a temporary directory, excluding `~/Projects`.
+3. Check selected permissions, the watchdog's executable bit, and broken relative
+   symlinks. Absolute symlink targets are not checked.
+4. Check the first token of `ExecStart` entries in restored service files. Map
+   `%h` and `/home/dzbohan` into the restored tree. Paths under `/usr/bin/`,
+   `/bin/`, and `/usr/local/bin/` are accepted without checking their existence.
+5. Parse four selected JSON and TOML files from the restored copy. This can detect
+   malformed files, including some incomplete writes, but does not validate their
+   settings or consistency with other files.
+6. Compare file counts for entries listed in the manifest with the snapshot.
+   This checks counts, not file contents or entries omitted from the manifest.
 
-`~/Projects` is excluded because it is 1.3 TB travelling the same rsync path as
-everything else. Excluding it makes the drill cheap enough to run every week,
-which is worth more than testing one invocation against larger files.
+`~/Projects` contains 1.3 TB and uses the same rsync copy mechanism. Excluding it
+keeps the copy small enough for weekly drills. The manifest check still counts
+its snapshot files, but the drill does not test copying or reading all of its data.
 
-What the drill does not establish: that a bare machine boots, that the packages
-in `docs/system-level.md` install cleanly on hardware nobody has tested, or that
-the whole path fits in an hour. Those need a real second machine. The drill
-covers the failure mode that a second machine would mostly be idle waiting for.
+The drill invokes rsync directly, not `restore.sh`. It does not prove that a clean
+machine boots, dependencies install, services start, or recovery finishes within
+one hour. Those outcomes require a full recovery exercise on a suitable machine.
 
 ## Automation
 
-A weekly systemd user timer, `dgx-backup.timer`, runs Sunday at 02:00 local.
+The `dgx-backup.timer` systemd user timer is configured for Sunday at 02:00 local.
 
-- If the drive is absent the run exits 75, which the unit counts as success. A
-  drive left at home is not a broken backup, and conflating the two would make
-  the staleness alarm meaningless.
-- SMART is read before writing, so a failing drive is not handed 1.4 TB.
-- After more than 14 days without a successful run, a Telegram message goes out
-  over `sendMessage` only. It opens no `getUpdates` poller, so it cannot steal
-  inbound messages from either assistant's bridge.
-- Each run appends one line to the drive's `backup.log`.
+- If the drive is absent, the run exits with code 75, which the unit treats as
+  success. This distinguishes a skipped run from an error; the staleness check
+  tracks how long it has been since a successful backup.
+- SMART is read before writing to check for signs of drive failure.
+- After more than 14 days without a successful backup, a Telegram reminder is
+  sent using `sendMessage`. No `getUpdates` poller is started, so the reminder
+  does not compete with either assistant's bridge for incoming messages.
+- Each run appends a result line to the drive's `backup.log`.
 
 ## Open issues
 
@@ -222,19 +224,18 @@ A weekly systemd user timer, `dgx-backup.timer`, runs Sunday at 02:00 local.
   of patient-derived data in `~/Projects`.
 - **The drive is unencrypted.** This remains conditional on keeping it locked
   in the office; reconsider before that assumption changes.
-- **The one-hour recovery target is unverified.** `drill.sh` checks that a
-  restore is complete and coherent; it does not measure the walk from bare
-  hardware to a working machine. That number stays an estimate until someone
-  does it on real hardware.
-- **Retention is unbounded.** Nothing prunes old snapshots yet. Hard links make
-  each one cheap, but 5.4 TB of free space is not infinite, and the policy
-  should be written before the drive is the thing that decides it.
-- **`~/.codex/telegram/state.json` is written in place, not atomically.** Every
-  other state file in the bridge is written to a temporary file and renamed,
-  which rsync cannot tear. This one can in principle be copied mid-rewrite. The
-  window is milliseconds on a small file, so the risk is low, but the failure is
-  silent until a restore. Drill check 5 would detect it; the fix belongs in the
-  bridge.
+- **The one-hour recovery target is unverified.** `drill.sh` checks selected
+  files and metadata. It does not measure recovery from bare hardware to a
+  working machine. The target remains an estimate until a full recovery is timed.
+- **Retention is unbounded.** Nothing prunes old snapshots yet. Hard links reduce
+  storage use, but capacity is finite. A retention policy is needed before the
+  drive fills up.
+- **`~/.codex/telegram/state.json` is written in place.** A backup taken during
+  a rewrite could contain an incomplete file. Check 5 detects invalid JSON, but
+  cannot detect every inconsistent state that still parses. The small file and
+  short write window limit exposure. The bridge should use a temporary file
+  and atomic rename, as its other state files do; that prevents readers from
+  seeing a partial replacement but does not guarantee consistency across files.
 
 ## Related records
 
