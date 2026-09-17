@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Take one hard-linked snapshot of $HOME onto the backup drive.
 #
-#   backup.sh [--dry-run] [--source DIR] [--dest MOUNTPOINT]
+#   backup.sh [--dry-run] [--full] [--source DIR] [--dest MOUNTPOINT]
 #
 # Why hard links: a plain mirror propagates mistakes. Delete something by accident and the next
 # sync deletes it from the backup too, so the good copy is gone. --link-dest keeps every previous
@@ -16,11 +16,13 @@ LABEL=${LABEL:-DGXBACKUP}
 SRC=${SRC:-$HOME}
 HOSTNAME_S=$(hostname -s)
 DRYRUN=0
+FULLCOPY=0
 DEST=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
     --dry-run) DRYRUN=1 ;;
+    --full) FULLCOPY=1 ;;
     --source) SRC=$2; shift ;;
     --dest) DEST=$2; shift ;;
     *) echo "unknown argument: $1"; exit 1 ;;
@@ -90,12 +92,35 @@ EXCLUDES=(
 )
 
 # ---------- pick the previous snapshot to link against ----------
+# --full writes every file again instead of linking, producing a snapshot that shares no blocks
+# with any other. That is the only way to get a second physical copy of data that never changes.
+#
+# It matters because hard links mean unchanged files exist once on the disk, however many snapshots
+# list them, so ordinary snapshots give no protection against the media decaying under them. A
+# periodic --full run costs another 1.3 TB and buys an independent copy that a decayed sector in
+# the old chain cannot touch.
+#
+# What it does not buy: both copies are still on this one drive, so it protects against localised
+# decay, not against the drive failing.
 PREV=""
-if [ -L "$LATEST" ] && [ -d "$LATEST" ]; then
+if [ "$FULLCOPY" -eq 1 ]; then
+    log "--full: writing every file again, sharing no blocks with existing snapshots"
+elif [ -L "$LATEST" ] && [ -d "$LATEST" ]; then
     PREV=$(readlink -f "$LATEST")
     log "linking unchanged files against $(basename "$PREV")"
 else
     log "no previous snapshot: this run copies everything"
+fi
+
+# A full copy needs room for the whole source, not just the delta. Checking first turns "the drive
+# filled up in the middle of the night" into a refusal that says why.
+if [ "$FULLCOPY" -eq 1 ] && [ "$DRYRUN" -eq 0 ]; then
+    NEED=$(du -sk --exclude=.cache --exclude=.nv "$SRC" 2>/dev/null | cut -f1)
+    FREE=$(df -Pk "$DEST" | tail -1 | awk '{print $4}')
+    if [ -n "$NEED" ] && [ "$FREE" -lt "$NEED" ]; then
+        die "a full copy needs about $((NEED/1024/1024)) GB but only $((FREE/1024/1024)) GB is free on $DEST"
+    fi
+    log "full copy needs about $((NEED/1024/1024)) GB, $((FREE/1024/1024)) GB free"
 fi
 
 RSYNC=(rsync -aHAX --numeric-ids --info=progress2 --no-inc-recursive)

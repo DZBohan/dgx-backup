@@ -325,6 +325,17 @@ snapshot shares blocks with every later snapshot still holding the same file, so
 deleting the oldest frees only what changed after it, not its apparent size.
 Deleting a 1.3 TB snapshot would return on the order of 1.2 GB.
 
+**An independent copy: `backup.sh --full`.** Ordinary snapshots share blocks, so
+they do not protect against the media decaying under them. A `--full` run writes
+every file again and shares nothing with the existing chain, which is the only way
+to hold two physical copies of data that never changes. It costs another 1.3 TB;
+the drive fits about three more. Bohan's plan as of 2026-09-17 is to take one
+roughly annually.
+
+It protects against localised decay, not against the drive failing, since both
+copies live on the same disk. The run refuses to start if free space is short,
+rather than filling the drive overnight.
+
 **What would overturn this.** These figures describe a home directory whose bulk
 is static research data. A week that reprocesses or reorganises `~/Projects`
 would write a delta in the hundreds of gigabytes. If that becomes common,
