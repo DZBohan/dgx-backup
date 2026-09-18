@@ -47,8 +47,12 @@ new machine has a desktop session.
 
 Two things are worth installing that were **not** on the source machine:
 
-- `smartmontools` gives the weekly backup its drive-health check. Without it the run logs
-  `smartctl not installed` and proceeds, so the backup works but the early warning does not.
+- `smartmontools` gives the weekly backup its drive-health check, and installing the package is
+  not enough on its own. `smartctl` lives in `/usr/sbin`, which is not on a normal user's PATH,
+  and reading a raw block device needs root, which the backup does not have. Run
+  `sudo ~/Scripts/setup-smart-monitoring.sh`, which installs the package and adds a sudoers rule
+  scoped to `/usr/sbin/smartctl` alone. Without it the backup still works, but the only layer that
+  warns *before* data is lost stays inert.
 - `ffmpeg` was absent on the source machine, which is why the codex assistant's foreground command
   ban lists commands that do not exist there. Install it only if media work is needed.
 

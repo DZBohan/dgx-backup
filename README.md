@@ -218,8 +218,16 @@ one, but it is real: for silent media decay on the source, the backup is cleaner
 than the machine. It is not a safeguard to rely on, since nothing reports it.
 
 The earliest signal for media decay is therefore SMART, read before each run, not
-the checksum sample. **`smartmontools` is not installed on this machine**, so that
-layer is currently absent and each run logs `smartctl not installed`.
+the checksum sample. Active since 2026-09-18; the drive's baseline at that point
+was 39 power-on hours with zero reallocated, pending and uncorrectable sectors,
+which is what makes later comparisons meaningful.
+
+Installing `smartmontools` is not sufficient by itself: `smartctl` sits in
+`/usr/sbin`, off a normal user's PATH, and reading a raw block device needs root
+that the backup does not have. `~/Scripts/setup-smart-monitoring.sh` handles both.
+The script validates its sudoers rule with `visudo -c` before installing it and
+removes it again if the whole set fails to validate, because a malformed file
+there disables `sudo` and repairing that needs `sudo`.
 
 `scripts/selftest.sh` checks that the corruption detector actually detects
 corruption. It builds a small snapshot, rots a file the way a disk does (content

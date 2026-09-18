@@ -73,8 +73,29 @@ log "drive at $MP"
 # ---------- 2. SMART before writing ----------
 # Report health before the run, not after: the point is to warn while the drive can still be
 # replaced, rather than discover the problem from a failed restore.
-if command -v smartctl >/dev/null 2>&1; then
-    SMART=$(smartctl -H -A -d sat "$DEV" 2>/dev/null)
+# Two things went wrong here on 2026-09-18, and they compounded.
+#
+# `command -v smartctl` failed even with smartmontools installed, because it lives in /usr/sbin,
+# which is not on a normal user's PATH. So the run logged "smartctl not installed" about software
+# that was installed, pointing at the wrong problem. Absolute path now.
+#
+# And reading a raw block device needs root, which this script does not have. Installing the
+# package changes nothing on its own; a scoped sudoers rule is required, which
+# ~/Scripts/setup-smart-monitoring.sh sets up. So "missing" and "installed but not permitted" are
+# different states and must not both be reported as "not installed".
+SMARTCTL=${SMARTCTL:-/usr/sbin/smartctl}
+# SMART belongs to the physical disk, not the partition. $DEV is /dev/sda1 because that is what
+# carries the filesystem label, so strip the partition number before asking.
+DISK=${DEV%%[0-9]*}
+if [ ! -x "$SMARTCTL" ]; then
+    log "smartctl not installed; skipping drive health check (run ~/Scripts/setup-smart-monitoring.sh)"
+    SMART=""
+elif ! SMART=$(sudo -n "$SMARTCTL" -H -A -d sat "$DISK" 2>/dev/null) || [ -z "$SMART" ]; then
+    log "smartctl is installed but cannot read $DEV without root; skipping drive health check"
+    log "  fix: sudo ~/Scripts/setup-smart-monitoring.sh"
+    SMART=""
+fi
+if [ -n "$SMART" ]; then
     HEALTH=$(echo "$SMART" | grep -i 'overall-health' | sed 's/.*: *//')
     REALLOC=$(echo "$SMART" | awk '/Reallocated_Sector_Ct/{print $10}')
     PENDING=$(echo "$SMART" | awk '/Current_Pending_Sector/{print $10}')
@@ -86,8 +107,6 @@ if command -v smartctl >/dev/null 2>&1; then
     if [ "${REALLOC:-0}" -gt 0 ] 2>/dev/null || [ "${PENDING:-0}" -gt 0 ] 2>/dev/null; then
         tg "⚠️ 备份盘出现坏扇区：重分配 ${REALLOC:-?}，待定 ${PENDING:-?}。盘还能用，但这是换盘的信号。"
     fi
-else
-    log "smartctl not installed; skipping drive health check (see docs/system-level.md)"
 fi
 
 # ---------- 3. back up, verify, then judge staleness ----------
