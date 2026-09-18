@@ -198,7 +198,8 @@ reaches it, which can take up to 114 weeks.
 **And a rotted file usually cannot be recovered from an older snapshot**, contrary
 to what is intuitive about keeping history. Hard links mean a file unchanged
 between snapshots is one set of blocks, not one per snapshot: an unchanged file in
-`~/Projects` has the same inode in all four snapshots on this drive. Snapshots
+`~/Projects` carries the same inode in every snapshot that lists it, verified on
+this drive. Snapshots
 protect against deletion and mistaken edits, which give the new version its own
 blocks. They do not protect against media decay. That protection would need a
 second physical copy, which this design does not have.

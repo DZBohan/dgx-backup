@@ -93,6 +93,6 @@ Stated plainly, because a backup that is trusted for more than it does is worse 
   the drive, not as an argument against the decision.
 - **It is one drive, and one copy of the data.** Drives fail, and the day you need this one is the
   day the other copy is already gone. The snapshot count is misleading here: hard links mean
-  unchanged files exist once physically, however many snapshots list them, so four snapshots are
-  not four copies.
+  unchanged files exist once physically, however many snapshots list them, so N snapshots are
+  not N copies.
 - **It holds one machine's home directory, not a bootable system.** See "What this drive is".
