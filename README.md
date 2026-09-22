@@ -3,11 +3,16 @@
 Back up irreplaceable data from spark-5f4a to an external drive and restore it on
 another Linux machine.
 
-**Status: scripts written, timer installed, first full backup in progress.** The
-6 TB drive is ext4, labelled `DGXBACKUP`, mounted at `/media/dzbohan/DGXBACKUP`.
-`backup.sh`, `verify.sh`, `restore.sh` and `drill.sh` have each been run against
-test data; none has yet been run against a finished full snapshot, and no restore
-has been performed on a second machine.
+**Status: running weekly.** The 6 TB drive is ext4, labelled `DGXBACKUP`, mounted
+at `/media/dzbohan/DGXBACKUP` when connected. The first full snapshot completed on
+2026-09-17. The scheduled run on 2026-09-18 took 5m35s, left 5 snapshots on the
+drive with 4.2 TB free, and passed the restore drill, 30 checks, 0 failed.
+
+`backup.sh`, `verify.sh` and `drill.sh` now run weekly against real snapshots.
+Two limits remain: `restore.sh` has never been run on a second machine, so the
+one-hour recovery target below is still an estimate, and the drive is not
+permanently attached, so a run finds it only if it is plugged in by Thursday
+night.
 
 The recovery target is a clean Ubuntu ARM64 machine with four services running,
 both agents' memories and instructions restored, and `~/Projects` back in place
@@ -294,7 +299,8 @@ Each run is backup, then verify, then drill.
   ~17 GB of scratch space. Duration depends almost entirely on the page cache:
   measured at about 15 minutes cold and 12 seconds when the snapshot's non-
   `Projects` files are still resident, which on a 121 GB machine they often are.
-  Expect the cold figure for a weekly run at midnight. It is skipped with a warning when `/tmp`
+  The first scheduled midnight run, 2026-09-18, took 270 seconds, between the two.
+  It is skipped with a warning when `/tmp`
   has under 40 GB free, because a drill that dies for lack of space says nothing
   about the backup. `SKIP_DRILL=1` skips it deliberately.
 - A failing drill sends a Telegram message and makes the unit fail, but does not
