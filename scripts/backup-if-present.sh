@@ -9,6 +9,7 @@
 #   3. run backup.sh, then verify.sh, then check how long it has been since the last good run and
 #      tell Bohan over Telegram if that is too long.
 #   4. rehearse a restore with drill.sh, and say so if it does not pass.
+#   5. unmount the drive again, so it is not reachable between runs.
 #
 # The staleness alarm is the part that matters. A backup that silently stops running looks exactly
 # like a backup that is working, until the day you need it.
@@ -69,6 +70,22 @@ if [ -z "$MP" ]; then
     [ -n "$MP" ] || { log "could not mount $DEV"; tg "⚠️ 备份盘插着但挂不上（$DEV），这次跳过。"; exit 75; }
 fi
 log "drive at $MP"
+
+# The drive stays plugged in (since 2026-10-06, locked in the same room as the machine), but it is
+# kept unmounted between runs, so a stray command or runaway process on the machine cannot reach
+# the backups the rest of the week. Mount for the run, unmount when the run ends, whatever the
+# outcome. KEEP_MOUNTED=1 leaves it mounted (manual restores, inspection).
+unmount_drive() {
+    [ "${KEEP_MOUNTED:-0}" = "1" ] && { log "KEEP_MOUNTED=1: leaving $DEV mounted"; return; }
+    sync
+    if udisksctl unmount -b "$DEV" >/dev/null 2>&1; then
+        log "unmounted $DEV"
+    else
+        log "could not unmount $DEV (busy?); it stays mounted"
+        tg "⚠️ 备份跑完了，但备份盘卸载失败（可能有程序占用），现在仍是挂载状态。"
+    fi
+}
+trap unmount_drive EXIT
 
 # ---------- 2. SMART before writing ----------
 # Report health before the run, not after: the point is to warn while the drive can still be

@@ -286,8 +286,12 @@ Thursday night. It was Sunday 02:00 until 2026-09-17, when the drive still
 travelled home at weekends. Since 2026-10-06 the drive stays attached to the
 machine, locked in the same room, so it is present at every scheduled run. That
 also means there is no off-site copy: an event that destroys the machine can take
-the drive with it, and a mounted, writable drive is reachable by the same mistakes
-as the originals.
+the drive with it. To keep the backups out of reach of mistakes made on the
+machine the rest of the week, the drive is kept unmounted between runs: the run
+mounts it, and unmounts it when it ends, whatever the outcome (`KEEP_MOUNTED=1`
+leaves it mounted). The desktop may mount it again when it is replugged; the next
+run unmounts it. For a manual restore or inspection, mount it first:
+`udisksctl mount -b /dev/disk/by-label/DGXBACKUP`, and unmount it afterwards.
 
 Each run is backup, then verify, then drill.
 
