@@ -282,9 +282,12 @@ one hour. Those outcomes require a full recovery exercise on a suitable machine.
 ## Automation
 
 The `dgx-backup.timer` systemd user timer runs Friday at 00:00 local, which is
-Thursday night. It was Sunday 02:00 until 2026-09-17; the drive travels home at
-weekends, so a weekend schedule would have found it unplugged and skipped quietly
-most weeks.
+Thursday night. It was Sunday 02:00 until 2026-09-17, when the drive still
+travelled home at weekends. Since 2026-10-06 the drive stays attached to the
+machine, locked in the same room, so it is present at every scheduled run. That
+also means there is no off-site copy: an event that destroys the machine can take
+the drive with it, and a mounted, writable drive is reachable by the same mistakes
+as the originals.
 
 Each run is backup, then verify, then drill.
 
